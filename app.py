@@ -3,7 +3,7 @@ from dotenv import load_dotenv
 import requests
 import re
 import os
-import tiktoken
+
 
 from medicalClassifier import MedicalClassifier
 
