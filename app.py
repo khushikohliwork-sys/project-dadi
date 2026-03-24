@@ -3,6 +3,7 @@ from dotenv import load_dotenv
 import requests
 import re
 import os
+import tiktoken
 
 from medicalClassifier import MedicalClassifier
 
@@ -202,16 +203,7 @@ def chat():
     # This is a simple keyword-based approach; can be improved with NLP if needed
     user_info = session.get("user_info", {})
 
-    # Example checks: duration, severity, water intake, other symptoms
-    # You can expand these rules as needed
-    if "din" in user_message or "day" in user_message:
-        user_info["duration"] = user_message
-    if "tez" in user_message or "mild" in user_message or "body ache" in user_message:
-        user_info["severity"] = user_message
-    if "paani" in user_message or "liter" in user_message or "water" in user_message:
-        user_info["water_intake"] = user_message
-    if "throat" in user_message or "headache" in user_message:
-        user_info["other_symptoms"] = user_message
+
 
     session["user_info"] = user_info
 
