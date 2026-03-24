@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dadi Health Form</title>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 20px; background: #fdf6e3; }
+    h2 { color: #b5651d; }
+    form { max-width: 500px; margin: auto; background: #fff7ef; padding: 20px; border-radius: 10px; box-shadow: 0 2px 6px rgba(0,0,0,0.1); }
+    label { display: block; margin-top: 15px; font-weight: bold; }
+    input, textarea, select { width: 100%; padding: 8px; margin-top: 5px; border-radius: 5px; border: 1px solid #ccc; }
+    button { margin-top: 20px; padding: 10px 20px; background: #b5651d; color: white; border: none; border-radius: 5px; cursor: pointer; }
+    button:hover { background: #9c4810; }
+  </style>
+</head>
+<body>
+
+  <h2>Dadi Health Form</h2>
+  <p>Enter your details below. Dadi will ask follow-up questions if needed.</p>
+
+  <form id="dadiForm">
+    <label for="name">Name (optional)</label>
+    <input type="text" id="name" placeholder="Enter your name">
+
+    <label for="age">Age (optional)</label>
+    <input type="number" id="age" placeholder="Enter your age">
+
+    <label for="sex">Sex (optional)</label>
+    <select id="sex">
+      <option value="">Select</option>
+      <option value="Female">Female</option>
+      <option value="Male">Male</option>
+      <option value="Other">Other</option>
+    </select>
+
+    <label for="problem">Main Problem / Complaint</label>
+    <textarea id="problem" rows="4" placeholder="Describe your symptoms, e.g., 'Fever 101°F for 3 days, body ache, headache'"></textarea>
+
+    <button type="submit">Submit to Dadi</button>
+  </form>
+
+  <script>
+    const form = document.getElementById('dadiForm');
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+
+      const data = {
+        name: document.getElementById('name').value,
+        age: document.getElementById('age').value,
+        sex: document.getElementById('sex').value,
+        problem: document.getElementById('problem').value
+      };
+
+      if (!data.problem) {
+        alert('Please enter your main problem or symptoms.');
+        return;
+      }
+
+      try {
+        const response = await fetch('/submit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data)
+        });
+
+        const result = await response.json();
+        console.log('Dadi Response:', result);
+        alert('Dadi has received your input! Check console for XML output.');
+      } catch (err) {
+        console.error(err);
+        alert('Error submitting to Dadi. Try again.');
+      }
+    });
+  </script>
+
+</body>
+</html>
