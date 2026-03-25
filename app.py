@@ -3,7 +3,7 @@ from dotenv import load_dotenv
 import requests
 import re
 import os
-
+from threading import Lock
 
 from medicalClassifier import MedicalClassifier
 
@@ -18,14 +18,33 @@ app.secret_key = os.getenv("SECRET_KEY", "fallback_secret")
 # ============================================================
 # GROQ CONFIG
 # ============================================================
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 GROQ_MODEL = "llama-3.3-70b-versatile"
 GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 
-classifier = MedicalClassifier(GROQ_API_KEY, GROQ_MODEL)
+# 🔁 ROUND ROBIN SETUP
+API_KEYS = [
+    os.getenv("GROQ_API_KEY"),
+    os.getenv("GROQ_API_KEY_2"),
+]
+
+API_KEYS = [k for k in API_KEYS if k]
+
+key_index = 0
+key_lock = Lock()
+
+def get_next_key():
+    global key_index
+    with key_lock:
+        key = API_KEYS[key_index]
+        key_index = (key_index + 1) % len(API_KEYS)
+        print("Using API KEY:", key[:10])
+    return key
+
+# Keep classifier using first key (optional)
+classifier = MedicalClassifier(API_KEYS[0], GROQ_MODEL)
 
 # ============================================================
-# YOUR ORIGINAL PROMPT (UNCHANGED)
+# PROMPT (UNCHANGED)
 # ============================================================
 DADI_SYSTEM_PROMPT = """
 You are Dadi — an 89-year-old Indian grandmother with deep, practical knowledge of Ayurveda and ghar ke nuske.
@@ -109,6 +128,7 @@ TONE & FLOW
 4. Keep each section short (2–3 lines), practical, slightly firm, caring, Hinglish.
 5. Once remedy is given, **do not ask any more follow-up questions**. Conversation can end, or user can report back later.
 """
+
 # ============================================================
 # REMOVE <thinking>
 # ============================================================
@@ -134,33 +154,28 @@ def parse_xml_response(raw_text):
     }
 
 # ============================================================
-# PROFILE EXTRACTION (STRICT FORMAT)
+# PROFILE EXTRACTION
 # ============================================================
 def extract_user_profile(text):
     text = text.lower()
     profile = {}
 
-    # Extract name (look for 'my name is' or just 'i am' followed by name)
     name_match = re.search(r"(?:my name is|i am|name)\s*[:\-]?\s*([a-zA-Z]+)", text)
     if name_match:
         profile["name"] = name_match.group(1).capitalize()
 
-    # Extract age
     age_match = re.search(r"(\d{1,3})\s*(years|yo|yr|years old)?", text)
     if age_match:
         profile["age"] = age_match.group(1)
 
-    # Extract sex
     sex_match = re.search(r"(male|female|other|f|m)", text)
     if sex_match:
         profile["sex"] = sex_match.group(1).capitalize()
 
-    # Extract problem / symptoms (everything after 'problem' or first verb phrase)
     problem_match = re.search(r"(?:problem is|issue is|having|suffering from)\s*(.*)", text)
     if problem_match:
         profile["problem"] = problem_match.group(1).strip()
     else:
-        # fallback: take all text minus extracted fields
         temp = text
         for v in profile.values():
             temp = temp.replace(v.lower(), "")
@@ -178,41 +193,34 @@ def index():
 
 @app.route("/chat", methods=["POST"])
 def chat():
+     # Get JSON data sent from frontend (user message)
     data = request.get_json()
     user_message = data.get("message", "").strip()
-
+ # If message is empty, return error
     if not user_message:
-        return jsonify({"final": "Beta message nahi bheja, phir se try karo"}), 400
+        return jsonify({"final": "Beta message nahi bheja"}), 400
+ #  get profile from session (stored user data)
 
-    # --- Profile extraction ---
     profile = session.get("profile")
     if not profile:
         profile = extract_user_profile(user_message)
         if not profile:
-            return jsonify({
-                "final": "Beta pehle proper format mein batao:\n\nMy name is ..., age is ..., sex is ..., and my problem is ..."
-            })
+            return jsonify({"final": "Proper format mein batao"}), 400
         session["profile"] = profile
-        session["user_info"] = {}  # to store follow-up answers
+        session["user_info"] = {}
     else:
-        # Append new symptom info to problem
         profile["problem"] += f", {user_message}"
         session["profile"] = profile
-
-    # --- Auto-update session["user_info"] from user message ---
-    # This is a simple keyword-based approach; can be improved with NLP if needed
+  # Save profile in session
     user_info = session.get("user_info", {})
-
-
-
     session["user_info"] = user_info
 
-    # --- History tracking ---
+    # --- History ---
     history = session.get("history", [])
     history.append({"role": "user", "content": user_message})
     session["history"] = history
 
-    # --- Build messages for API ---
+    # --- Messages ---
     messages = [{"role": "system", "content": DADI_SYSTEM_PROMPT}]
     messages.append({
         "role": "system",
@@ -224,14 +232,14 @@ Problem: {profile['problem']}
 Additional info: {user_info}
 """
     })
-    messages += history[-4:]  # last 4 messages
+    messages += history[-4:]
 
-    # --- Call API ---
+    # --- API CALL (ROUND ROBIN HERE) ---
     try:
         response = requests.post(
             GROQ_API_URL,
             headers={
-                "Authorization": f"Bearer {GROQ_API_KEY}",
+                "Authorization": f"Bearer {get_next_key()}",
                 "Content-Type": "application/json"
             },
             json={
@@ -248,13 +256,14 @@ Additional info: {user_info}
 
     raw = response.json()["choices"][0]["message"]["content"]
 
-    # --- Remove thinking before sending ---
     cleaned = remove_thinking(raw)
+
     history.append({"role": "assistant", "content": cleaned})
     session["history"] = history
 
     parsed = parse_xml_response(cleaned)
     return jsonify(parsed)
+
 @app.route("/reset", methods=["POST"])
 def reset():
     session.clear()
