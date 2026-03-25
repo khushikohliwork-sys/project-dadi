@@ -46,6 +46,42 @@ classifier = MedicalClassifier(API_KEYS[0], GROQ_MODEL)
 # ============================================================
 # PROMPT (UNCHANGED)
 # ============================================================
+
+
+def detect_intent(message):
+    prompt = f"""
+Classify the user message into ONE of these categories:
+- greeting
+- health_problem
+
+Message: "{message}"
+
+Answer ONLY one word.
+"""
+
+    try:
+        response = requests.post(
+            GROQ_API_URL,
+            headers={
+                "Authorization": f"Bearer {get_next_key()}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "model": GROQ_MODEL,
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": 0,
+                "max_tokens": 5
+            },
+            timeout=10
+        )
+
+        response.raise_for_status()
+        result = response.json()["choices"][0]["message"]["content"].strip().lower()
+
+        return result
+
+    except:
+        return "health_problem" 
 DADI_SYSTEM_PROMPT = """
 You are Dadi — an 89-year-old Indian grandmother with deep, practical knowledge of Ayurveda and ghar ke nuske.
 
@@ -193,48 +229,63 @@ def index():
 
 @app.route("/chat", methods=["POST"])
 def chat():
-     # Get JSON data sent from frontend (user message)
     data = request.get_json()
     user_message = data.get("message", "").strip()
- # If message is empty, return error
+
     if not user_message:
         return jsonify({"final": "Beta message nahi bheja"}), 400
- #  get profile from session (stored user data)
 
+    # ================= PROFILE =================
     profile = session.get("profile")
+
     if not profile:
         profile = extract_user_profile(user_message)
-        if not profile:
-            return jsonify({"final": "Proper format mein batao"}), 400
+
+        # 🔥 KEY FIX: Check if message is meaningful
+        problem = profile.get("problem", "").strip()
+
+        # If message is too small or vague → treat like greeting
+        if len(problem) < 4:
+            return jsonify({
+                "final": "Namaste beta 😊 Dadi yahan hai. Apni problem thoda clearly batao — kya takleef ho rahi hai?"
+            })
+
         session["profile"] = profile
         session["user_info"] = {}
     else:
-        profile["problem"] += f", {user_message}"
+        # Safe update
+        profile["problem"] = profile.get("problem", "") + f", {user_message}"
         session["profile"] = profile
-  # Save profile in session
+
+    # ================= USER INFO =================
     user_info = session.get("user_info", {})
     session["user_info"] = user_info
 
-    # --- History ---
+    # ================= HISTORY =================
     history = session.get("history", [])
     history.append({"role": "user", "content": user_message})
+
+    # 🔥 prevent session overflow
+    history = history[-10:]
     session["history"] = history
 
-    # --- Messages ---
+    # ================= MESSAGES =================
     messages = [{"role": "system", "content": DADI_SYSTEM_PROMPT}]
+
     messages.append({
         "role": "system",
         "content": f"""
-Name: {profile['name']}
-Age: {profile['age']}
-Sex: {profile['sex']}
-Problem: {profile['problem']}
+Name: {profile.get('name', 'Unknown')}
+Age: {profile.get('age', 'Unknown')}
+Sex: {profile.get('sex', 'Unknown')}
+Problem: {profile.get('problem', '')}
 Additional info: {user_info}
 """
     })
+
     messages += history[-4:]
 
-    # --- API CALL (ROUND ROBIN HERE) ---
+    # ================= API CALL =================
     try:
         response = requests.post(
             GROQ_API_URL,
@@ -255,12 +306,14 @@ Additional info: {user_info}
         return jsonify({"error": str(e)}), 500
 
     raw = response.json()["choices"][0]["message"]["content"]
-
     cleaned = remove_thinking(raw)
 
+    # ================= SAVE HISTORY =================
     history.append({"role": "assistant", "content": cleaned})
+    history = history[-10:]
     session["history"] = history
 
+    # ================= PARSE =================
     parsed = parse_xml_response(cleaned)
     return jsonify(parsed)
 
