@@ -23,7 +23,7 @@ GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions"
 
 # 🔁 ROUND ROBIN SETUP
 API_KEYS = [
-    os.getenv("GROQ_API_KEY"),
+    os.getenv("GROQ_API_KEY_1"),
     os.getenv("GROQ_API_KEY_2"),
 ]
 
@@ -90,10 +90,9 @@ You diagnose through observation, food habits, routine, and body signals — nev
 -------------------------
 CRITICAL RULES
 -------------------------
-CRITICAL RULES:
-1. NEVER give medical advice â€” you're Dadi, not a doctor
-2. Be conversational, natural â€” talk like a real grandmother
-3. Use simple Hinglish â€” mix Hindi and English naturally
+1. NEVER give medical advice — you're Dadi, not a doctor
+2. Be conversational, natural — talk like a real grandmother
+3. Use simple Hinglish — mix Hindi and English naturally
 4. Be warm, caring, sometimes slightly firm
 5. If someone asks non-health questions, politely redirect to health topics
 6. Only give remedies AFTER understanding the problem fully
@@ -111,14 +110,14 @@ ALWAYS:
 • Once remedy is given, do NOT ask any more follow-up questions
 
 RESPONSE GUIDELINES:
-€¢ If user asks about non-health topics: "Arre beta, main dadi hoon, bimariyon ka ilaaj jaanti hoon. Aapko koi takleef hai?"
-â€¢ If information is incomplete: Ask specific questions about age, symptoms, food, routine
-â€¢ If you have enough info: Give 1-2 simple kitchen remedies with timing and quantity
-â€¢ Always end with warmth and care
+• If user asks about non-health topics: "Arre beta, main dadi hoon, bimariyon ka ilaaj jaanti hoon. Aapko koi takleef hai?"
+• If information is incomplete: Ask specific questions about age, symptoms, food, routine
+• If you have enough info: Give 1–2 simple kitchen remedies with timing and quantity
+• Always end with warmth and care
+
 -------------------------
 INPUT UNDERSTANDING
 -------------------------
-
 Extract:
 • Name, Age, Sex
 • Symptoms / problem
@@ -126,14 +125,24 @@ Extract:
 • Severity / intensity
 • Major food or lifestyle clues relevant to symptoms
 
-Ask only critical missing info 2–3 at a time in bullet points.  
+Ask **only critical missing info 2–3 at a time in bullet points.**
 After 2–3 follow-up rounds, proceed to remedy, diet, habit, final advice.  
 Minor optional info (urine color, mild headache, dryness) does NOT block remedy.
 
 -------------------------
+CRITICAL MISSING INFO BY SYMPTOM
+-------------------------
+- Respiratory / cold symptoms (khansi, zukam, cough, flu): always ask age, duration, fever/temperature, sore throat, headache, body ache.
+- Fever / infection related: always ask temperature, duration, chills, associated symptoms.
+- Digestive issues: always ask food habits, digestion, bowel movements, duration.
+- Pain / injury / joint / muscle issues (knee, shoulder, back, muscle): 
+  always ask intensity, duration, recent activity or exercise, affected area, rest/recovery, diet affecting strength (calcium/protein), warm/cold imbalance.
+  Do NOT ask about digestion, bowel movements, or unrelated symptoms unless the user specifically mentions them.
+- General wellness / other: ask age, duration, relevant habits, food, or discomforts..
+
+-------------------------
 RESPONSE FORMAT (MANDATORY XML)
 -------------------------
-
 <response>
 <thinking>
 • Symptoms observed:
@@ -162,9 +171,8 @@ STYLE:
 - Show genuine concern
 - Share little wisdom from experience
 
-IMPORTANT: Be specific and relevant. Don't give long lists or generic advice. Talk like a real grandmother would â€” caring, practical, to the point.
+IMPORTANT: Be specific and relevant. Don't give long lists or generic advice. Talk like a real grandmother would — caring, practical, to the point.
 """
-
 # ============================================================
 # REMOVE <thinking>
 # ============================================================
@@ -235,53 +243,52 @@ def chat():
     if not user_message:
         return jsonify({"final": "Beta message nahi bheja"}), 400
 
-    # ================= INTENT DETECTION =================
+    # ================= SESSION INIT =================
+    profile = session.get("profile")
+    user_info = session.get("user_info", {})
+    history = session.get("history", [])
+    followup_rounds = session.get("followup_rounds", 0)
+
+    # ================= INTENT CHECK =================
     intent = detect_intent(user_message)
 
-    # Non-health messages → immediate canned response
+    # ---------------- Non-health message ----------------
+    # Only trigger if either first message or long enough text
     if intent != "health_problem":
-        return jsonify({
-            "diagnosis": "",
-            "cause": "",
-            "remedy": "",
-            "diet": "",
-            "habit": "",
-            "followup_questions": "",
-            "final": "Arre beta, main dadi hoon, bimariyon ka ilaaj jaanti hoon. Aapko koi takleef hai?"
-        })
-
-    # ================= PROFILE =================
-    profile = session.get("profile")
-
-    if not profile:
-        profile = extract_user_profile(user_message)
-
-        # Check if message is meaningful
-        problem = profile.get("problem", "").strip()
-
-        if len(problem) < 4:
+        if profile and len(user_message) < 10:
+            # Short replies like 'haan', 'nahin', 'nothing' → treat as health follow-up
+            intent = "health_problem"
+        else:
             return jsonify({
-                "final": "Namaste beta 😊 Dadi yahan hai. Apni problem thoda clearly batao — kya takleef ho rahi hai?"
+                "diagnosis": "",
+                "cause": "",
+                "remedy": "",
+                "diet": "",
+                "habit": "",
+                "followup_questions": "",
+                "final": "Arre beta, main dadi hoon, bimariyon ka ilaaj jaanti hoon. Aapko koi takleef hai?"
             })
 
+    # ---------------- First health message ----------------
+    if not profile:
+        profile = extract_user_profile(user_message)
         session["profile"] = profile
-        session["user_info"] = {}
+        session["user_info"] = user_info
+        session["followup_rounds"] = followup_rounds
+        history.append({"role": "user", "content": user_message})
+        session["history"] = history
+
+    # ---------------- Ongoing health conversation ----------------
     else:
-        # Safe update
-        profile["problem"] = profile.get("problem", "") + f", {user_message}"
+        problem = profile.get("problem", "")
+        profile["problem"] = problem + (", " if problem else "") + user_message
         session["profile"] = profile
+        # Append new user message
+        history.append({"role": "user", "content": user_message})
+        history = history[-10:]  # keep last 10 messages
+        session["history"] = history
 
-    # ================= USER INFO =================
-    user_info = session.get("user_info", {})
-    session["user_info"] = user_info
-
-    # ================= HISTORY =================
-    history = session.get("history", [])
-    history.append({"role": "user", "content": user_message})
-    history = history[-10:]  # prevent session overflow
-    session["history"] = history
-
-    # ================= MESSAGES =================
+    # ================= BUILD MESSAGES =================
     messages = [{"role": "system", "content": DADI_SYSTEM_PROMPT}]
     messages.append({
         "role": "system",
@@ -291,9 +298,10 @@ Age: {profile.get('age', 'Unknown')}
 Sex: {profile.get('sex', 'Unknown')}
 Problem: {profile.get('problem', '')}
 Additional info: {user_info}
+Followup rounds done: {followup_rounds}
 """
     })
-    messages += history[-4:]  # last 4 messages
+    messages += history[-4:]  # only last 4 messages to avoid token overflow
 
     # ================= API CALL =================
     try:
@@ -318,13 +326,19 @@ Additional info: {user_info}
     raw = response.json()["choices"][0]["message"]["content"]
     cleaned = remove_thinking(raw)
 
+    # ================= PARSE RESPONSE =================
+    parsed = parse_xml_response(cleaned)
+
+    # ================= INCREMENT FOLLOW-UP ROUNDS =================
+    if parsed.get("followup_questions"):
+        followup_rounds += 1
+    session["followup_rounds"] = followup_rounds
+
     # ================= SAVE HISTORY =================
     history.append({"role": "assistant", "content": cleaned})
     history = history[-10:]
     session["history"] = history
 
-    # ================= PARSE =================
-    parsed = parse_xml_response(cleaned)
     return jsonify(parsed)
 
 @app.route("/reset", methods=["POST"])
