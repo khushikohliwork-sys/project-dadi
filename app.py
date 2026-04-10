@@ -681,7 +681,11 @@ def get_history():
         })
 
     return jsonify({"history": cleaned_history, "session_id": session_id})
-
+@app.route('/status', methods=['GET'])
+def status():
+    """Return API status."""
+    print("Status check requested")
+    return jsonify({"status": "OKAY"}), 200
 # ============================================================w
 if __name__ == "__main__":
     app.run(debug=True, port=5000)
