@@ -1,11 +1,30 @@
 import logging
-import uuid
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,  # INFO shows general events; DEBUG shows everything
-    format="%(asctime)s [%(levelname)s] %(message)s",
-)
 
+LOG_FILE = "chat_debug.txt"
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
+# 🧹 Remove default handlers (important in Flask debug mode)
+if logger.hasHandlers():
+    logger.handlers.clear()
+
+# 📁 File handler (writes to Notepad file)
+file_handler = logging.FileHandler(LOG_FILE, encoding="utf-8")
+file_handler.setLevel(logging.INFO)
+
+# 🖥 Console handler (optional)
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.INFO)
+
+# 🎨 Format
+formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
+file_handler.setFormatter(formatter)
+console_handler.setFormatter(formatter)
+
+# ➕ Add handlers
+logger.addHandler(file_handler)
+logger.addHandler(console_handler)
 logger = logging.getLogger(__name__)
 from flask import Flask, request, jsonify, render_template, session
 from dotenv import load_dotenv
