@@ -396,6 +396,7 @@ def index():
     # Only render the page
     return render_template("index.html")
 import json
+
 @app.route("/chat", methods=["POST"])
 def chat():
     import json, requests, uuid, re, random
@@ -456,11 +457,7 @@ def chat():
             profile[key] = new_data[key]
 
     session["profile"] = profile
-    if re.search(r'umar kya hai|meri age kya hai', user_message, re.IGNORECASE):
-        if profile.get("age"):
-            return jsonify({"final": f"Beta, tumhari umar {profile['age']} saal hai"})
-        else:
-            return jsonify({"final": "Beta, tumne abhi tak apni umar batayi nahi"})
+
     # ================= CLASSIFICATION =================
     classification = classifier.classify(user_message)
     is_medical = classification in ["medical", "emergency"]

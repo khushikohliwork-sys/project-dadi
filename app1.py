@@ -396,6 +396,7 @@ def index():
     # Only render the page
     return render_template("index.html")
 import json
+
 @app.route("/chat", methods=["POST"])
 def chat():
     import json, requests, uuid, re, random
@@ -456,11 +457,7 @@ def chat():
             profile[key] = new_data[key]
 
     session["profile"] = profile
-    if re.search(r'umar kya hai|meri age kya hai', user_message, re.IGNORECASE):
-        if profile.get("age"):
-            return jsonify({"final": f"Beta, tumhari umar {profile['age']} saal hai"})
-        else:
-            return jsonify({"final": "Beta, tumne abhi tak apni umar batayi nahi"})
+
     # ================= CLASSIFICATION =================
     classification = classifier.classify(user_message)
     is_medical = classification in ["medical", "emergency"]
@@ -553,6 +550,9 @@ Followup rounds: {followup_rounds}
     if parsed.get("final"):
         full_reply += parsed["final"] + "\n"
 
+    if parsed.get("remedy"):
+        full_reply += "\nRemedy:\n" + parsed["remedy"]
+
     if parsed.get("diet"):
         full_reply += "\nDiet:\n" + parsed["diet"]
 
@@ -562,33 +562,20 @@ Followup rounds: {followup_rounds}
     full_reply = full_reply.strip()
 
     # ================= FOLLOW-UP =================
-   # ================= BUILD FULL RESPONSE =================
-# Cleaned XML response from Dadi AI
-    assistant_content = cleaned  # includes <followup_questions> etc.
-
-# Decide what to show to user (frontend)
     MAX_FOLLOWUP = 3
+
     if parsed.get("followup_questions") and followup_rounds < MAX_FOLLOWUP:
-        # Show only formatted follow-up questions to user
         reply = format_followup_questions(parsed["followup_questions"])
         followup_rounds += 1
     else:
-        # Show full remedy/diet/habit/etc
-        reply = (
-            (parsed.get("final") or "") + "\n"
-            + ("\nDiet:\n" + parsed.get("diet", "") if parsed.get("diet") else "")
-            + ("\nHabit:\n" + parsed.get("habit", "") if parsed.get("habit") else "")
-        ).strip()
+        reply = full_reply
+        parsed["followup_questions"] = ""
 
     if not reply or not reply.strip():
         reply = "Thoda aur batao beta"
 
-    # ================= APPEND TO SESSION =================
-    # What user sees
     history.append({"role": "assistant", "content": reply})
-
-    # What we store in DB / full history (includes full XML)
-    full_history.append({"role": "assistant", "content": assistant_content})
+    full_history.append({"role": "assistant", "content": reply})
 
     session["history"] = history[-6:]
     session["full_history"] = full_history[-50:]
@@ -623,14 +610,18 @@ def reset():
 
 @app.route("/get_history", methods=["GET"])
 def get_history():
-    """Return full chat history for frontend rendering with XML preserved"""
+    """Return full chat history for frontend rendering"""
     session_id = session.get("session_id")
 
     # 🔹 Hard reload / new session: no session_id yet
     if not session_id:
+        # generate new session_id
         import uuid
         session["session_id"] = uuid.uuid4().hex[:16]
         session_id = session["session_id"]
+        logger.info(f"New session started: {session_id}")
+
+        # return empty history for a fresh start
         return jsonify({"history": [], "session_id": session_id})
 
     # Try to get full history from DB
@@ -639,15 +630,11 @@ def get_history():
         if res.status_code == 200:
             data = res.json()
             full_history = json.loads(data.get("history_json", "[]"))
-
-            # 🔹 Keep XML intact for assistant messages
             cleaned_history = []
             for msg in full_history:
-                cleaned_history.append({
-                    "role": msg.get("role"),
-                    "content": msg.get("content", "")
-                })
-
+                content = msg.get("content", "")
+                content = re.sub(r"<.*?>", "", content, flags=re.DOTALL).strip()
+                cleaned_history.append({"role": msg.get("role"), "content": content})
             return jsonify({"history": cleaned_history, "session_id": session_id})
     except Exception as e:
         logger.error(f"Failed to fetch full history from DB: {e}")
@@ -656,10 +643,9 @@ def get_history():
     history = session.get("history", [])
     cleaned_history = []
     for msg in history:
-        cleaned_history.append({
-            "role": msg.get("role"),
-            "content": msg.get("content", "")
-        })
+        content = msg.get("content", "")
+        content = re.sub(r"<.*?>", "", content, flags=re.DOTALL).strip()
+        cleaned_history.append({"role": msg.get("role"), "content": content})
 
     return jsonify({"history": cleaned_history, "session_id": session_id})
 

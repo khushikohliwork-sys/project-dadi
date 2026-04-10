@@ -40,68 +40,45 @@ class MedicalClassifier:
     # STEP 3: MEDICAL QUERY CLASSIFICATION (LLM)
     # ============================================================
     def is_medical_query(self, user_input):
-        """Check if query is medical-related"""
-        messages = [
-            {
-                "role": "system",
-                "content": "You are a classifier. Only reply YES or NO."
-            },
-            {
-                "role": "user",
-                "content": f"""
-    Is the following query related to health or medical issues?
-
-    Query: {user_input}
-
-    Reply only YES or NO.
-    """
-            }
-        ]
-        
+        """
+        Returns True if user_input is a medical/health query.
+        Uses the injected api_caller function.
+        """
         if not self.api_caller:
-            raise Exception("API caller function not provided!")
-        
-        response = self.api_caller(messages)
-        
-        # Extract the answer text
-        answer = response.get("choices", [{}])[0].get("message", {}).get("content", "").strip().upper()
-        return answer == "YES"
-    def is_valid_symptoms(self, symptoms):
-        """Check if symptoms are valid medical symptoms"""
+            # fallback if api_caller not provided
+            return False
+
         messages = [
-            {
-                "role": "system",
-                "content": "You are a classifier. Only reply YES or NO."
-            },
-            {
-                "role": "user",
-                "content": f"""
-    Is the following text describing real medical symptoms?
-
-    Text: {symptoms}
-
-    Reply only YES or NO.
-    """
-            }
+            {"role": "system", "content": "Reply ONLY with YES or NO."},
+            {"role": "user", "content": f"Is this related to health or body symptoms?\n\n{user_input}"}
         ]
-        
-        if not self.api_caller:
-            raise Exception("API caller function not provided!")
+
+        try:
+            result = self.api_caller(messages, temperature=0, max_tokens=10)
+            response_text = result["choices"][0]["message"]["content"].strip()
+            return response_text.upper() == "YES"
+        except Exception as e:
+            print("Medical query classification failed:", e)
+            return False
+
     # ============================================================
     # FINAL CLASSIFICATION
     # ============================================================
     def classify(self, user_input):
         """
-        Returns:
+        Returns one of:
         - emergency
-        - medical
+        - incomplete
         - non_medical
+        - valid
         """
-
         if self.detect_emergency(user_input):
             return "emergency"
 
-        if self.is_medical_query(user_input):
-            return "medical"
+        if not self.is_valid_user_format(user_input):
+            return "incomplete"
 
-        return "non_medical"
+        if not self.is_medical_query(user_input):
+            return "non_medical"
+
+        return "valid"
